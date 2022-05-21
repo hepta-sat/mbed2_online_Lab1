@@ -81,13 +81,14 @@ class Satellite {
             currentBatteryVoltage = batteryVoltage;
         }
 
-        void setPowerSavingMode(Environment environment) {
+        void setPowerSavingMode() {
             if(currentBatteryVoltage < 3.5){
                 isPowerSavingMode = true;
             } else if(currentBatteryVoltage > 4.0) {
                 isPowerSavingMode = false;
             }
         }
+
 };
 
 DigitalOut conditions[] = {LED1, LED2, LED3, LED4};
@@ -115,7 +116,7 @@ int main(){
         sat.checkConnection(environment);
 
         sat.getBatteryVoltage(environment);
-        sat.setPowerSavingMode(environment);
+        sat.setPowerSavingMode();
 
         if(sat.isConnected){
             // Processing to be executed within the visible range
