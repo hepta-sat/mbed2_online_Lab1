@@ -1,10 +1,10 @@
 /*
-  Lab1 mbed Hands-on Lesson
-  「衛星が軌道を周回する様子を再現しよう」
+ * mbed Hands-on Lesson
+ * ・Lab1: Let's simulate the satellite in orbit!
+ * ・Lab2: Let's add EPS Subsystem functions.
 */
 
 #include "mbed.h"
-#include <cstdio>
 
 class Environment {
     private:
@@ -30,21 +30,43 @@ class Environment {
         void update() {
             updatePosition();
             isInVisibleArea = (theta >= 70.0 && theta <= 110.0) || (theta >= 250.0 && theta <= 290.0);
-            isSunlit = theta < 180.0;
-            printf("%.0f deg, %s, %s\r\n", theta, isInVisibleArea ? "Visible" : "NotVisible", isSunlit ? "Sunlit" : "Shaded");
+            isSunlit = theta > 180.0;
+            printf("%.0f deg, %s, || ", theta, isSunlit ? "Sunlit" : "Shaded");
         }
 };
 
 class Satellite {
     private:
         Timer timer;
+        float batteryVoltage;
+        float chargingCurrent;
+        float consumptionCurrent;
+        
+
+        void calculateBatteryVoltage(Environment environment) {
+            chargingCurrent = environment.isSunlit ? 0.008 : 0.0;
+            consumptionCurrent = isPowerSavingMode ? 0.002 : 0.005;
+            
+            batteryVoltage += chargingCurrent - consumptionCurrent;
+
+            if (batteryVoltage > 4.2) {
+                batteryVoltage = 4.2;
+            }
+        }
 
     public:
         Satellite() {
             timer.start();
+            batteryVoltage = 4.2;
+            chargingCurrent = 0.0;
+            consumptionCurrent = 0.0;
+            isPowerSavingMode = false;
         }
         
-        bool isConnected;
+        bool isConnected; /* Wheter the satellite is in the visible range. */
+
+        float currentBatteryVoltage;
+        bool isPowerSavingMode; /* Wheter the satellite state is in power-saving mode. */
 
         float time(){
             return timer.read();
@@ -53,6 +75,20 @@ class Satellite {
         void checkConnection(Environment environment) {
             isConnected = environment.isInVisibleArea;
         }
+
+        void getBatteryVoltage(Environment environment) {
+            calculateBatteryVoltage(environment);
+            currentBatteryVoltage = batteryVoltage;
+        }
+
+        void setPowerSavingMode() {
+            if(currentBatteryVoltage < 3.5){
+                isPowerSavingMode = true;
+            } else if(currentBatteryVoltage > 4.0) {
+                isPowerSavingMode = false;
+            }
+        }
+
 };
 
 DigitalOut conditions[] = {LED1, LED2, LED3, LED4};
@@ -60,6 +96,8 @@ DigitalOut conditions[] = {LED1, LED2, LED3, LED4};
 int main(){
     Satellite sat;
     Environment environment;
+
+    float batteryVoltage;
 
     // Turn on satellite. 
     printf("Released!\r\n");
@@ -75,17 +113,22 @@ int main(){
     while(1) {
         environment.update();
 
-        sat.checkConnection(environment);  
+        sat.checkConnection(environment);
+
+        sat.getBatteryVoltage(environment);
+        sat.setPowerSavingMode();
 
         if(sat.isConnected){
-            // 可視範囲内
+            // Processing to be executed within the visible range
             conditions[1] = 1;
         }else{
-            // 可視範囲外
+            // Processing to be executed outside the visible range
             conditions[1] = 0;
         }
 
-        printf("time: %.2f, %s\r\n", sat.time(), sat.isConnected ? "Visible" : "NotVisible");
+        printf("time: %.2f, %s, ", sat.time(), sat.isConnected ? "Visible" : "NotVisible");
+        printf("battery: %.2f, mode: %s", sat.currentBatteryVoltage, sat.isPowerSavingMode ? "PowerSaving" : "Normal");
+        printf("\r\n");
         wait(0.2);
     }
 }
