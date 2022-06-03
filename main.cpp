@@ -3,11 +3,14 @@
  * ・Lab1: Let's simulate the satellite in orbit!
  * ・Lab2: Let's add EPS Subsystem functions.
  * ・Lab3: Let's add CDH Subsystem functions.
+ * ・Lab4: Let's add ADC Subsystem functions.
 */
 
 #include "mbed.h"
 #include "LocalFileSystem.h"
 #include <cstdio>
+#include <cmath>
+#include <arm_math.h>
 
 class Environment {
     private:
@@ -20,11 +23,14 @@ class Environment {
             theta = 0.0;
             isInVisibleArea = false;
             isSunlit = false;
+            deltaByDisturbanceTorque = 0.008;
         }
 
         float theta;
         bool isInVisibleArea;
         bool isSunlit;
+
+        float deltaByDisturbanceTorque;
 
         void update() {
             updatePosition();
@@ -44,6 +50,9 @@ class Satellite {
         FILE *fp;
         bool isFirstWriting;
 
+        float outerTemperature;
+        float angularVelocity;
+
         void calculateBatteryVoltage(Environment environment) {
             chargingCurrent = environment.isSunlit ? 0.008 : 0.0;
             consumptionCurrent = isPowerSavingMode ? 0.002 : 0.005;
@@ -55,6 +64,24 @@ class Satellite {
             }
         }
 
+        void calculateTemperature(Environment environment) {
+            float delta = environment.isSunlit ? 0.36 : -0.36;
+            outerTemperature += delta;
+        }
+
+        void calculateAngularVelocity(Environment environment) {
+            angularVelocity += environment.deltaByDisturbanceTorque + deltaByControlTorque;
+        }
+
+        double addNoise(double raw, double sigma) {
+            double rand1, rand2, gaussRand, result;
+            rand1 = (double)rand() / RAND_MAX;
+            rand2 = (double)rand() / RAND_MAX;
+            gaussRand = sqrt(-2*log(rand1))*cos(2*PI*rand2);
+
+            result = raw + sigma * gaussRand;
+            return result;
+        }
 
     public:
         Satellite() {
@@ -64,12 +91,19 @@ class Satellite {
             consumptionCurrent = 0.0;
             isPowerSavingMode = false;
             isFirstWriting = true;
+            outerTemperature = 30.0;
+            angularVelocity = 3.0;
+            deltaByControlTorque = 0.0;
         }
         
         bool isConnected; /* Wheter the satellite is in the visible range. */
 
         float currentBatteryVoltage;
         bool isPowerSavingMode; /* Wheter the satellite state is in power-saving mode. */
+
+        float currentOuterTemperature;
+        float currentAngularVelocity;
+        float deltaByControlTorque;
 
         float time(){
             return timer.read();
@@ -110,6 +144,24 @@ class Satellite {
         void closeFile() {
             fclose(fp);
         }
+
+        void getTemperature(Environment environment) {
+            calculateTemperature(environment);
+            currentOuterTemperature = addNoise(outerTemperature, 0.5);
+        }
+
+        void getAngularVelocity(Environment environment) {
+            calculateAngularVelocity(environment);
+            currentAngularVelocity = addNoise(angularVelocity, 0.05);
+        }
+
+        void despinControl() {
+            if (currentAngularVelocity > 0) {
+                deltaByControlTorque = -0.1 * fabsf(currentAngularVelocity);
+            } else {
+                deltaByControlTorque = 0.1 * fabsf(currentAngularVelocity);
+            }
+        }
 };
 
 DigitalOut conditions[] = {LED1, LED2, LED3, LED4};
@@ -140,6 +192,9 @@ int main(){
         sat.checkConnection(environment);
         sat.getBatteryVoltage(environment);
         sat.setPowerSavingMode();
+        sat.getTemperature(environment);
+        sat.getAngularVelocity(environment);
+        sat.despinControl();
 
         if(sat.isConnected){
             // Processing to be executed within the visible range
@@ -149,15 +204,16 @@ int main(){
             conditions[1] = 0;
         }
 
-        char header[] = "time, battery";
-        float data[] = {sat.time(), sat.currentBatteryVoltage};
+        char header[] = "time, battery, outer temp., angular Velocity, c torque";
+        float data[] = {sat.time(), sat.currentBatteryVoltage, sat.currentOuterTemperature, sat.currentAngularVelocity, sat.deltaByControlTorque};
         int numberOfData = sizeof(data) / sizeof(float);
         sat.saveData(header, data, numberOfData);
-        
+
         printf("time: %.2f, %s, ", sat.time(), sat.isConnected ? "Visible" : "NotVisible");
         printf("battery: %.2f, mode: %s", sat.currentBatteryVoltage, sat.isPowerSavingMode ? "PowerSaving" : "Normal");
+        printf("temp: %.4f, angularVelocity: %.4f, c_torque: %.4f", sat.currentOuterTemperature, sat.currentAngularVelocity, sat.deltaByControlTorque);
         printf("\r\n");
-        wait(0.2);
+        wait(0.1);
     }
     
     printf("End Operation\r\n");
